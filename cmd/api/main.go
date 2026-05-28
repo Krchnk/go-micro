@@ -1,30 +1,31 @@
 package main
 
 import (
-	"errors"
 	"log"
-	"net/http"
-	"time"
+	"net"
 
 	"github.com/Krchnk/go-micro/internal/config"
-	"github.com/Krchnk/go-micro/internal/httpapi"
+	usersv1 "github.com/Krchnk/go-micro/internal/gen/users/v1"
+	"github.com/Krchnk/go-micro/internal/grpcapi"
 	"github.com/Krchnk/go-micro/internal/users"
+	"google.golang.org/grpc"
 )
 
 func main() {
 	cfg := config.Load()
 	repo := users.NewInMemoryRepository()
 	service := users.NewService(repo)
-	handler := httpapi.NewHandler(service)
 
-	server := &http.Server{
-		Addr:              cfg.HTTPAddr(),
-		Handler:           handler.Routes(),
-		ReadHeaderTimeout: 5 * time.Second,
+	listener, err := net.Listen("tcp", cfg.GRPCAddr())
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
 	}
 
-	log.Printf("user service is running on %s", cfg.HTTPAddr())
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("server failed: %v", err)
+	grpcServer := grpc.NewServer()
+	usersv1.RegisterUserServiceServer(grpcServer, grpcapi.NewServer(service))
+
+	log.Printf("user gRPC service is running on %s", cfg.GRPCAddr())
+	if err := grpcServer.Serve(listener); err != nil {
+		log.Fatalf("failed to serve gRPC: %v", err)
 	}
 }

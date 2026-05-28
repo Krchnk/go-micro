@@ -3,23 +3,23 @@ package config
 import "os"
 
 type Config struct {
-	HTTPPort string
+	GRPCPort string
 }
 
 func Load() Config {
 	return Config{
-		HTTPPort: getEnv("HTTP_PORT", "8080"),
+		GRPCPort: getEnv("GRPC_PORT", "9090"),
 	}
 }
 
-func (c Config) HTTPAddr() string {
-	if c.HTTPPort == "" {
-		return ":8080"
+func (c Config) GRPCAddr() string {
+	if c.GRPCPort == "" {
+		return ":9090"
 	}
-	if c.HTTPPort[0] == ':' {
-		return c.HTTPPort
+	if c.GRPCPort[0] == ':' {
+		return c.GRPCPort
 	}
-	return ":" + c.HTTPPort
+	return ":" + c.GRPCPort
 }
 
 func getEnv(key, fallback string) string {

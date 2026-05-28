@@ -1,21 +1,33 @@
-# User Service (Go, In-Memory)
+# User Service (gRPC, Protobuf, In-Memory)
 
-Микросервис для управления пользователями с хранением данных в памяти (map).
-
-Проект разложен по пакетам: в main только запуск и wiring зависимостей.
+Микросервис управления пользователями на gRPC с бинарной сериализацией Protocol Buffers.
 
 ## Структура
 
 ```text
 .
+├── api
+│   └── proto
+│       └── users
+│           └── v1
+│               └── users.proto
 ├── cmd
-│   └── api
+│   ├── api
+│   │   └── main.go
+│   ├── client
+│   │   └── main.go
+│   └── perf
 │       └── main.go
 ├── internal
 │   ├── config
 │   │   └── config.go
-│   ├── httpapi
-│   │   └── handler.go
+│   ├── gen
+│   │   └── users
+│   │       └── v1
+│   │           ├── users.pb.go
+│   │           └── users_grpc.pb.go
+│   ├── grpcapi
+│   │   └── server.go
 │   └── users
 │       ├── inmemory_repository.go
 │       ├── repository.go
@@ -25,86 +37,56 @@
 └── go.sum
 ```
 
-## Конфигурация через environment variables
+## gRPC методы
 
-- HTTP_PORT: порт HTTP сервера (по умолчанию 8080)
+Сервис `users.v1.UserService` реализует:
 
-Пример запуска:
+- `CreateUser`
+- `UpdateUser`
+- `DeleteUser`
+- `ListUsers`
 
-```bash
-HTTP_PORT=8081 go run ./cmd/api
-```
+Описание контрактов находится в `api/proto/users/v1/users.proto`.
 
-Для PowerShell:
+## Конфигурация
+
+- `GRPC_PORT`: порт gRPC-сервера (по умолчанию `9090`)
+- `GRPC_ADDR`: адрес для gRPC-клиента (по умолчанию `localhost:9090`)
+
+## Запуск сервера
 
 ```powershell
-$env:HTTP_PORT="8081"
+$env:GRPC_PORT="9090"
 go run ./cmd/api
 ```
 
-Сервис стартует на http://localhost:{HTTP_PORT}.
+## Запуск тестового клиента (CRUD сценарий)
 
-## API
-
-### 1) Регистрация пользователя
-
-POST /users
-
-Пример запроса:
-
-```bash
-curl -X POST http://localhost:8080/users \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ivan","email":"ivan@example.com"}'
+```powershell
+$env:GRPC_ADDR="localhost:9090"
+go run ./cmd/client
 ```
 
-### 2) Обновление пользователя
+Клиент выполняет последовательность:
+1. `CreateUser`
+2. `ListUsers`
+3. `UpdateUser`
+4. `DeleteUser`
+5. `ListUsers`
 
-PUT /users/{id}
+## Исследование производительности (JSON vs Protobuf)
 
-Пример запроса:
-
-```bash
-curl -X PUT http://localhost:8080/users/1 \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ivan Petrov","email":"ivan.petrov@example.com"}'
+```powershell
+go run ./cmd/perf
 ```
 
-### 3) Удаление пользователя
+Пример результата (100000 итераций, 100 пользователей в payload):
 
-DELETE /users/{id}
+- `Payload size (JSON): 5687 bytes`
+- `Payload size (Proto): 3384 bytes`
+- `Marshal JSON: 1.1884992s`
+- `Marshal Proto: 693.6168ms`
+- `Unmarshal JSON: 7.2767115s`
+- `Unmarshal Proto: 1.6785275s`
 
-Пример запроса:
-
-```bash
-curl -X DELETE http://localhost:8080/users/1
-```
-
-### 4) Получение списка пользователей
-
-GET /users
-
-Пример запроса:
-
-```bash
-curl http://localhost:8080/users
-```
-
-## Модель пользователя
-
-```json
-{
-  "id": 1,
-  "name": "Ivan",
-  "email": "ivan@example.com"
-}
-```
-
-## Коды ответов
-
-- 201 Created - пользователь создан
-- 200 OK - успешное получение/обновление
-- 204 No Content - пользователь удален
-- 400 Bad Request - ошибка в пути или JSON
-- 404 Not Found - пользователь не найден
-- 405 Method Not Allowed - метод не поддерживается
+Вывод: protobuf payload меньше и сериализация/десериализация выполняется быстрее, особенно при чтении (unmarshal), что снижает сетевую нагрузку и latency при росте нагрузки.
