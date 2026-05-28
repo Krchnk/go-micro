@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"time"
 
+	"github.com/Krchnk/go-micro/internal/config"
 	usersv1 "github.com/Krchnk/go-micro/internal/gen/users/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -13,7 +13,8 @@ import (
 )
 
 func main() {
-	addr := getEnv("GRPC_ADDR", "localhost:9090")
+	cfg := config.Load()
+	addr := cfg.GRPCClient
 
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -73,12 +74,4 @@ func main() {
 		log.Fatalf("ListUsers (after delete) failed: %v", err)
 	}
 	log.Printf("ListUsers after delete: %+v", listAfterDelete.GetUsers())
-}
-
-func getEnv(key, fallback string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	return value
 }

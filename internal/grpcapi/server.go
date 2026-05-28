@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	log "log"
-	"os"
 	"strings"
+	"time"
 
+	"github.com/Krchnk/go-micro/internal/config"
+	"github.com/Krchnk/go-micro/internal/monitoring"
 	"github.com/Krchnk/go-micro/internal/notify"
 
 	usersv1 "github.com/Krchnk/go-micro/internal/gen/users/v1"
@@ -18,31 +20,28 @@ import (
 type Server struct {
 	usersv1.UnimplementedUserServiceServer
 	service *users.Service
+	cfg     config.Config
 }
 
-func NewServer(service *users.Service) *Server {
-	return &Server{service: service}
+func NewServer(service *users.Service, cfg config.Config) *Server {
+	return &Server{service: service, cfg: cfg}
 }
 
 func (s *Server) CreateUser(_ context.Context, req *usersv1.CreateUserRequest) (*usersv1.CreateUserResponse, error) {
+	start := time.Now()
+	monitoring.RequestCount.WithLabelValues("CreateUser").Inc()
+
 	name := strings.TrimSpace(req.GetName())
 	email := strings.TrimSpace(req.GetEmail())
 	if name == "" || email == "" {
+		monitoring.RequestDuration.WithLabelValues("CreateUser").Observe(time.Since(start).Seconds())
 		return nil, status.Error(codes.InvalidArgument, "name and email are required")
 	}
 
 	created := s.service.Create(name, email)
 
 	// Публикация события в Kafka
-	broker := os.Getenv("KAFKA_BROKER")
-	if broker == "" {
-		broker = "localhost:9092"
-	}
-	topic := os.Getenv("KAFKA_TOPIC")
-	if topic == "" {
-		topic = "user-registered"
-	}
-	err := notify.SendUserRegistered(broker, topic, notify.UserEvent{
+	err := notify.SendUserRegistered(s.cfg.KafkaBroker, s.cfg.KafkaTopic, notify.UserEvent{
 		ID:    created.ID,
 		Email: created.Email,
 		Name:  created.Name,
@@ -50,53 +49,65 @@ func (s *Server) CreateUser(_ context.Context, req *usersv1.CreateUserRequest) (
 	if err != nil {
 		log.Printf("Kafka publish error: %v", err)
 	}
+	monitoring.RequestDuration.WithLabelValues("CreateUser").Observe(time.Since(start).Seconds())
 	return &usersv1.CreateUserResponse{User: toProtoUser(created)}, nil
 }
 
 func (s *Server) UpdateUser(_ context.Context, req *usersv1.UpdateUserRequest) (*usersv1.UpdateUserResponse, error) {
+	start := time.Now()
+	monitoring.RequestCount.WithLabelValues("UpdateUser").Inc()
 	if req.GetId() <= 0 {
+		monitoring.RequestDuration.WithLabelValues("UpdateUser").Observe(time.Since(start).Seconds())
 		return nil, status.Error(codes.InvalidArgument, "id must be positive")
 	}
 
 	name := strings.TrimSpace(req.GetName())
 	email := strings.TrimSpace(req.GetEmail())
 	if name == "" || email == "" {
+		monitoring.RequestDuration.WithLabelValues("UpdateUser").Observe(time.Since(start).Seconds())
 		return nil, status.Error(codes.InvalidArgument, "name and email are required")
 	}
 
 	updated, err := s.service.Update(req.GetId(), name, email)
 	if err != nil {
+		monitoring.RequestDuration.WithLabelValues("UpdateUser").Observe(time.Since(start).Seconds())
 		if errors.Is(err, users.ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
 		}
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
-
+	monitoring.RequestDuration.WithLabelValues("UpdateUser").Observe(time.Since(start).Seconds())
 	return &usersv1.UpdateUserResponse{User: toProtoUser(updated)}, nil
 }
 
 func (s *Server) DeleteUser(_ context.Context, req *usersv1.DeleteUserRequest) (*usersv1.DeleteUserResponse, error) {
+	start := time.Now()
+	monitoring.RequestCount.WithLabelValues("DeleteUser").Inc()
 	if req.GetId() <= 0 {
+		monitoring.RequestDuration.WithLabelValues("DeleteUser").Observe(time.Since(start).Seconds())
 		return nil, status.Error(codes.InvalidArgument, "id must be positive")
 	}
 
 	if err := s.service.Delete(req.GetId()); err != nil {
+		monitoring.RequestDuration.WithLabelValues("DeleteUser").Observe(time.Since(start).Seconds())
 		if errors.Is(err, users.ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
 		}
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
-
+	monitoring.RequestDuration.WithLabelValues("DeleteUser").Observe(time.Since(start).Seconds())
 	return &usersv1.DeleteUserResponse{}, nil
 }
 
 func (s *Server) ListUsers(_ context.Context, _ *usersv1.ListUsersRequest) (*usersv1.ListUsersResponse, error) {
+	start := time.Now()
+	monitoring.RequestCount.WithLabelValues("ListUsers").Inc()
 	domainUsers := s.service.List()
 	protoUsers := make([]*usersv1.User, 0, len(domainUsers))
 	for _, user := range domainUsers {
 		protoUsers = append(protoUsers, toProtoUser(user))
 	}
-
+	monitoring.RequestDuration.WithLabelValues("ListUsers").Observe(time.Since(start).Seconds())
 	return &usersv1.ListUsersResponse{Users: protoUsers}, nil
 }
 
@@ -110,7 +121,7 @@ func (s *Server) Auth(_ context.Context, req *usersv1.AuthRequest) (*usersv1.Aut
 	}
 
 	// Примитивная проверка: любой пользователь с паролем "password" проходит
-	if password != "password" {
+	if password != s.cfg.AuthPassword {
 		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 	token, err := GenerateJWT(username)
