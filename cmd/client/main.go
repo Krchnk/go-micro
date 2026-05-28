@@ -9,6 +9,7 @@ import (
 	usersv1 "github.com/Krchnk/go-micro/internal/gen/users/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -23,6 +24,19 @@ func main() {
 	client := usersv1.NewUserServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Получаем JWT токен через Auth
+	authResp, err := client.Auth(ctx, &usersv1.AuthRequest{
+		Username: "Ivan",
+		Password: "password",
+	})
+	if err != nil {
+		log.Fatalf("Auth failed: %v", err)
+	}
+	token := authResp.GetToken()
+
+	md := metadata.New(map[string]string{"authorization": "Bearer " + token})
+	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	createdResp, err := client.CreateUser(ctx, &usersv1.CreateUserRequest{
 		Name:  "Ivan",

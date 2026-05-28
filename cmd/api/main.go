@@ -21,7 +21,9 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(grpcapi.JWTUnaryInterceptor()),
+	)
 	usersv1.RegisterUserServiceServer(grpcServer, grpcapi.NewServer(service))
 
 	log.Printf("user gRPC service is running on %s", cfg.GRPCAddr())

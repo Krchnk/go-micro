@@ -78,6 +78,26 @@ func (s *Server) ListUsers(_ context.Context, _ *usersv1.ListUsersRequest) (*use
 	return &usersv1.ListUsersResponse{Users: protoUsers}, nil
 }
 
+
+// Auth реализует аутентификацию пользователя и возвращает JWT-токен
+func (s *Server) Auth(_ context.Context, req *usersv1.AuthRequest) (*usersv1.AuthResponse, error) {
+	username := strings.TrimSpace(req.GetUsername())
+	password := strings.TrimSpace(req.GetPassword())
+	if username == "" || password == "" {
+		return nil, status.Error(codes.InvalidArgument, "username and password required")
+	}
+
+	// Примитивная проверка: любой пользователь с паролем "password" проходит
+	if password != "password" {
+		return nil, status.Error(codes.Unauthenticated, "invalid credentials")
+	}
+	token, err := GenerateJWT(username)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to generate token")
+	}
+	return &usersv1.AuthResponse{Token: token}, nil
+}
+
 func toProtoUser(user users.User) *usersv1.User {
 	return &usersv1.User{
 		Id:    user.ID,
