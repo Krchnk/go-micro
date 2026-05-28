@@ -3,7 +3,11 @@ package grpcapi
 import (
 	"context"
 	"errors"
+	log "log"
+	"os"
 	"strings"
+
+	"github.com/Krchnk/go-micro/internal/notify"
 
 	usersv1 "github.com/Krchnk/go-micro/internal/gen/users/v1"
 	"github.com/Krchnk/go-micro/internal/users"
@@ -28,6 +32,24 @@ func (s *Server) CreateUser(_ context.Context, req *usersv1.CreateUserRequest) (
 	}
 
 	created := s.service.Create(name, email)
+
+	// Публикация события в Kafka
+	broker := os.Getenv("KAFKA_BROKER")
+	if broker == "" {
+		broker = "localhost:9092"
+	}
+	topic := os.Getenv("KAFKA_TOPIC")
+	if topic == "" {
+		topic = "user-registered"
+	}
+	err := notify.SendUserRegistered(broker, topic, notify.UserEvent{
+		ID:    created.ID,
+		Email: created.Email,
+		Name:  created.Name,
+	})
+	if err != nil {
+		log.Printf("Kafka publish error: %v", err)
+	}
 	return &usersv1.CreateUserResponse{User: toProtoUser(created)}, nil
 }
 
